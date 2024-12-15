@@ -4,10 +4,11 @@ name: Test Workflow
 on: workflow_dispatch
 
 jobs:
-    setup:
+    # Install Dependencies (Base Job)
+    install:
         runs-on: ubuntu-latest
         steps:
-            - name: Checkout
+            - name: Checkout Code
               uses: actions/checkout@v3
 
             - uses: pnpm/action-setup@v3
@@ -19,75 +20,111 @@ jobs:
                   node-version: '18.19.1'
                   cache: 'pnpm'
 
-            - name: Get npm cache directory
-              id: npm-cache-dir
-              run: echo "dir=$(npm config get cache)" >> ${GITHUB_OUTPUT}
-
             - name: Cache node modules
               id: npm-cache
               uses: actions/cache@v3
               with:
-                  path: ${{steps.npm-cache-dir.outputs.dir}}
-                  key: ${{runner.os}}-node-${{hashFiles('**/pnpm-lock.yaml')}}
+                  path: ~/.pnpm-store
+                  key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
                   restore-keys: |
-                      ${{runner.os}}-node-
-                      ${{runner.os}}-
+                      ${{ runner.os }}-pnpm-
 
-            - name: Install NPM Dependencies
+            - name: Install Dependencies
               run: pnpm install
 
+            # Save node_modules as artifact to share with dependent jobs
+            - name: Cache node_modules for subsequent jobs
+              uses: actions/upload-artifact@v3
+              with:
+                  name: node_modules
+                  path: node_modules
+
+    # Lint Job
     lint:
+        needs: install
         runs-on: ubuntu-latest
-        needs: setup
         steps:
-            - name: Checkout
+            - name: Checkout Code
               uses: actions/checkout@v3
 
-            - name: Lint code
+            - name: Download node_modules
+              uses: actions/download-artifact@v3
+              with:
+                  name: node_modules
+                  path: node_modules
+
+            - name: Run Lint
               run: pnpm run lint
 
+    # Prettier Format Job
     prettier:
+        needs: install
         runs-on: ubuntu-latest
-        needs: setup
         steps:
-            - name: Checkout
+            - name: Checkout Code
               uses: actions/checkout@v3
 
-            - name: Prettier Format Check
-              run: pnpm run prettier:check
+            - name: Download node_modules
+              uses: actions/download-artifact@v3
+              with:
+                  name: node_modules
+                  path: node_modules
 
+            - name: Run Prettier
+              run: pnpm run format
+
+    # Jest Unit Tests Job
     jest-tests:
+        needs: install
         runs-on: ubuntu-latest
-        needs: setup
         steps:
-            - name: Checkout
+            - name: Checkout Code
               uses: actions/checkout@v3
+
+            - name: Download node_modules
+              uses: actions/download-artifact@v3
+              with:
+                  name: node_modules
+                  path: node_modules
 
             - name: Run Jest Tests
-              run: pnpm run test
+              run: pnpm run test:ci
 
+    # Storybook Tests Job
     storybook-tests:
+        needs: install
         runs-on: ubuntu-latest
-        needs: setup
         steps:
-            - name: Checkout
+            - name: Checkout Code
               uses: actions/checkout@v3
+
+            - name: Download node_modules
+              uses: actions/download-artifact@v3
+              with:
+                  name: node_modules
+                  path: node_modules
 
             - name: Run Storybook Tests
-              run: pnpm run storybook:test
+              run: pnpm run test:storybook
 
+    # Build Job
     build:
+        needs: install
         runs-on: ubuntu-latest
-        needs: setup
         steps:
-            - name: Checkout
+            - name: Checkout Code
               uses: actions/checkout@v3
 
-            - name: Build
+            - name: Download node_modules
+              uses: actions/download-artifact@v3
+              with:
+                  name: node_modules
+                  path: node_modules
+
+            - name: Build Angular App
               run: sh ./.github/ci/build.sh
 
-            - name: Archive web demo build
-              if: success()
+            - name: Archive Build Artifacts
               uses: actions/upload-artifact@v3
               with:
                   name: dist
